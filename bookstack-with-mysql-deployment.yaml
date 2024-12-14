@@ -1,0 +1,115 @@
+# kubectl create ns mysql-k3s
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mysql-k3s
+
+---
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: bookstack-secret
+  namespace: bookstack
+data:
+  app-key: your-app-key
+  db-user-name: bk-user
+  db-user-pass: bk-pass
+
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: bookstack-pv
+  labels:
+    type: local
+spec:
+  capacity:
+    storage: 3Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: /kube/bookstack/
+
+---
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bookstack-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 3Gi
+  storageClassName: ""
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bookstack
+  namespace: bookstack
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bookstack
+  template:
+    metadata:
+      labels:
+        app: bookstack
+    spec:
+      containers:
+      - name: bookstack
+        image: linuxserver/bookstack:24.10.20241021
+        env:
+        - name: DB_HOST
+          value: "mysql.mysql-k3s.svc.cluster.local:3306"
+        - name: DB_DATABASE
+          value: "bookstack"
+        - name: DB_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: bookstack-secret
+              key: db-user-name
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: bookstack-secret
+              key: db-user-pass
+        - name: APP_KEY
+          valueFrom:
+            secretKeyRef:
+              name: bookstack-secret
+              key: app-key
+        - name: APP_URL
+          value: http://ip:nodeport           # or your domain.
+        ports:
+        - containerPort: 80
+        volumeMounts:
+          - mountPath: "/config"
+            name: bokstack-volume
+      volumes:
+      - name: bokstack-volume
+        persistentVolumeClaim:
+          claimName: bookstack-pvc
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: bookstack-svc
+  namespace: bookstack
+spec:
+  type: NodePort
+  selector:
+    app: bookstack
+  ports:
+    - port: 80
+      targetPort: 80
+      nodePort: 30000
