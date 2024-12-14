@@ -1,0 +1,99 @@
+# kubectl create ns mysql-k3s
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mysql-k3s
+
+---
+
+# kubectl create secret generic mysql-secret --namespace=mysql-k3s --from-literal=root-password="mypasswd"
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mysql-secret
+  namespace: mysql-k3s
+data:
+  root-password: mypasswd
+
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mysql-k3s-pv
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  hostPath:
+    path: /kube/mysql-k3s
+
+---
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-k3s-pvc
+spec:
+  resources:
+    requests:
+      storage: 10Gi
+  accessModes:
+    - ReadWriteOnce           # Match the access mode of the PV
+  storageClassName: ""        # Explicitly dont mention any storageClass to not use default: local-path
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql
+  namespace: mysql-k3s
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:5.7
+          ports:
+            - containerPort: 3306
+              name: mysql
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: root-password
+          volumeMounts:
+            - name: mysql-storage
+              mountPath: /var/lib/mysql
+      volumes:
+        - name: mysql-storage
+          persistentVolumeClaim:
+            claimName: mysql-k3s-pvc
+
+---
+
+# ClusterIP service; accessible only with-in the cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  namespace: mysql-k3s
+spec:
+  selector:
+    app: mysql
+  ports:
+    - port: 3306
+      targetPort: 3306
+      protocol: TCP
+      name: mysql
